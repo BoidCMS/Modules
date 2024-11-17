@@ -274,8 +274,7 @@ function modules_admin(): void {
           <img loading="lazy" width="1280" height="720" src="https://cdn.jsdelivr.net/gh/BoidCMS/Packages/' . $module[ 'type' ] . '/' . $module[ 'slug' ] . '/preview.webp" alt="' . $module[ 'name' ] . ' preview" class="ss-image ss-w-10">';
         } else {
           $layout[ 'content' ] .= '
-          <div class="ss-xlarge ss-py-6 ss-anim-kenburns ss-gray">NO PREVIEW</div>
-          <hr class="ss-hr ss-mb-0">';
+          <img loading="lazy" width="1280" height="720" src="https://cdn.jsdelivr.net/gh/BoidCMS/Packages/preview.webp" alt="No preview" class="ss-image ss-w-10">';
         }
         
         $layout[ 'content' ] .= '
