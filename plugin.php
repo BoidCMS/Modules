@@ -11,25 +11,15 @@
 if ( 'modules' !== basename( __DIR__ ) ) return;
 
 global $App;
-$App->set_action( 'install', 'modules_install' );
-$App->set_action( 'uninstall', 'modules_uninstall' );
-$App->set_action( 'api_response', 'modules_api_integration' );
-$App->set_action( 'admin_nav', 'modules_admin_navigation' );
-$App->set_action( 'rendered', 'modules_auto_update_patch' );
-$App->set_action( 'admin_middle', 'modules_json_object' );
-$App->set_action( 'admin', 'modules_admin' );
+       $App->installed( 'cron' ) and
+       schedule_task( 'modules', 'modules_tasks' );
+define( 'MODULES_REPO', 'BoidCMS/Packages' );
 
-/**
- * Initialize Modules, first time install
- * @param string $plugin
- * @return void
- */
-function modules_install( string $plugin ): void {
-  global $App;
-  if ( 'modules' === $plugin ) {
+$App->set_action( 'install', function ( $slug ) {
+  if ( 'modules' === $slug ) {
     $config = array();
     $config[ 'auto' ] = true;
-    $App->set( $config, 'modules' );
+    $this->set( $config, 'modules' );
     $dir = modules_temporary_dir();
     if ( ! is_dir( $dir ) ) {
       (
@@ -40,33 +30,38 @@ function modules_install( string $plugin ): void {
       );
     }
   }
-}
-
-/**
- * Free hosting space, while uninstalled
- * @param string $plugin
- * @return void
- */
-function modules_uninstall( string $plugin ): void {
-  global $App;
-  if ( 'modules' === $plugin ) {
-    modules_clear_temporary();
-    $App->unset(  'modules' );
-  }
-}
-
-/**
- * API integration
- * @param array $response
- * @return array
- */
-function modules_api_integration( array $response ): array {
-  global $App;
   
+  $resolved = array();
+  $modules = get_modules();
+  foreach ( $modules as $module ) {
+    if ( ! in_array(  $module[ 'slug' ], $resolved ) ) {
+      resolve_module( $module[ 'slug' ], $resolved );
+    }
+  }
+  
+  $installed = $this->database[ 'installed' ];
+  foreach ( $resolved as $index => $plugin ) {
+    if ( ! in_array( $plugin, $installed ) ) {
+      unset( $resolved[ $index ] );
+    }
+  }
+  
+  $resolved = array_merge( $resolved, $installed );
+  $this->database[ 'installed' ] = array_unique( $resolved );
+});
+
+$App->set_action( 'uninstall', function ( $slug ) {
+  if ( 'modules' === $slug ) {
+    modules_clear_temporary();
+    $this->unset( 'modules' );
+  }
+});
+
+$App->set_action( 'api_response', function ( $response ) {
   if ( 'Routes' === $response[ 'message' ] ) {
     $response[ 'data' ][ 'api/' . API_VERSION . '/modules' ] = array();
-    $response[ 'data' ][ 'api/' . API_VERSION . '/modules' ][ 'href' ] = $App->url( 'api/' . API_VERSION . '/modules' );
-    $response[ 'data' ][ 'api/' . API_VERSION . '/modules' ][ 'methods' ] = [ 'GET', 'POST', 'PUT', 'DELETE' ];
+    $response[ 'data' ][ 'api/' . API_VERSION . '/modules' ][ 'href' ] = $this->url( 'api/' . API_VERSION . '/modules' );
+    $response[ 'data' ][ 'api/' . API_VERSION . '/modules' ][ 'methods' ] = [ 'GET', 'POST', 'DELETE' ];
   }
   
   elseif ( 404 === $response[ 'code' ] ) {
@@ -76,6 +71,7 @@ function modules_api_integration( array $response ): array {
       return $response;
     }
     
+    $response[ 'code' ] = 200;
     $response[ 'data' ] = array();
     $slug = api_input_string( 'slug' );
     $type = api_input_string( 'type' );
@@ -85,7 +81,6 @@ function modules_api_integration( array $response ): array {
     $method = api_method();
     
     if ( 'GET' === $method ) {
-      $response[ 'code' ] = 200;
       if ( api_input_bool( 'list' ) ) {
         $response[ 'status' ] = true;
         $response[ 'message' ] = 'All modules';
@@ -94,35 +89,44 @@ function modules_api_integration( array $response ): array {
       }
       
       elseif ( ! $module ) {
+        $response[ 'code' ] = 404;
         $response[ 'message' ] = 'Module not found';
         return $response;
       }
       
       $response[ 'status' ] = true;
       $response[ 'message' ] = 'Module details';
-      $module[ 'downloaded' ] = in_array( $slug, ( $type === 'theme' ? $App->themes : $App->plugins ) );
-      $module[ 'size' ] = module_size( $module );
+      $module[ 'downloaded' ] = in_array( $slug, ( $type === 'theme' ? $this->themes : $this->plugins ) );
       $response[ 'data' ] = $module;
       return $response;
     }
     
     elseif ( 'POST' === $method ) {
-      $response[ 'code' ] = 200;
-      if ( ! download_module( $module, $msg ) ) {
+      if ( ! $module ) {
+        $response[ 'code' ] = 404;
+        $response[ 'message' ] = 'Module not found';
+        return $response;
+      }
+      
+      elseif ( ! download_module( $module, $msg ) ) {
         $response[ 'message' ] = $msg;
         return $response;
       }
       
       $response[ 'status' ] = true;
       $response[ 'message' ] = $msg;
-      $module[ 'size' ] = module_size( $module );
       $response[ 'data' ] = $module;
       return $response;
     }
     
     elseif ( 'DELETE' === $method ) {
-      $response[ 'code' ] = 200;
-      if ( ! delete_module( $module, $msg ) ) {
+      if ( ! $module ) {
+        $response[ 'code' ] = 404;
+        $response[ 'message' ] = 'Module not found';
+        return $response;
+      }
+      
+      elseif ( ! delete_module( $module, $msg ) ) {
         $response[ 'message' ] = $msg;
         return $response;
       }
@@ -134,107 +138,54 @@ function modules_api_integration( array $response ): array {
   }
   
   return $response;
-}
+});
 
-/**
- * Manager panel link
- * @return string
- */
-function modules_admin_navigation(): string {
-  global $App, $page;
-  $slug = $App->admin_url( '?page=modules_manager', true );
+$App->set_action( 'admin_nav', function () {
+  global $page;
+  $slug = $this->admin_url( '?page=modules_manager', true );
   $active = ( 'modules_manager' === $page ? ' ss-bg-cyan' : '' );
   return "<a href=\"$slug\" class=\"ss-btn ss-inverted ss-bd-none ss-white$active\">Modules</a>";
-}
+});
 
-/**
- * Auto update security patches
- * @return void
- */
-function modules_auto_update_patch(): void {
-  global $App;
-  $config = $App->get( 'modules' );
-  if ( ! $config[ 'auto' ] ) return;
-  
-  $time = filectime( modules_temporary_dir( 'packages.json' ) );
-  if ( time() >= ( $time + strtotime( '+1 week', 0 ) ) ) {
-    modules_download_list();
-  }
-  
-  $modules = get_modules();
-  foreach ( $modules as $module ) {
-    if (  ! $module[ 'version' ][ 'security' ] ) {
-      continue;
-    }
-    
-    elseif ( 'plugin' === $module[ 'type' ] ) {
-      if ( ! in_array( $module[ 'slug' ], $App->plugins ) ) {
-        continue;
-      }
-    }
-    
-    elseif ( 'theme' === $module[ 'type' ] ) {
-      if ( ! in_array( $module[ 'slug' ], $App->themes ) ) {
-        continue;
-      }
-    }
-    
-    $slug = $module[ 'slug' ];
-    $type = $module[ 'type' ];
-    $current = get_module_local( $slug, $type, 'version', '0' );
-    if ( version_compare( $module[ 'version' ][ 'tag' ], $current, '>' ) ) {
-      download_module( $module );
-    }
-  }
-}
-
-/**
- * Modules object
- * @return string
- */
-function modules_json_object(): string {
+$App->set_action( 'admin_middle', function () {
   $json = json_encode( get_modules() );
   return <<<EOL
   <script>const modules={$json}</script>
   EOL;
-}
+});
 
-/**
- * Admin settings
- * @return void
- */
-function modules_admin(): void {
-  global $App, $layout, $page;
+$App->set_action( 'admin', function () {
+  global $layout, $page;
   switch ( $page ) {
     case 'modules':
-      $config = $App->get( 'modules' );
+      $config = $this->get( 'modules' );
       $layout[ 'title' ] = 'Modules';
       $layout[ 'content' ] = '
-      <form action="' . $App->admin_url( '?page=modules', true ) . '" method="post">
+      <form action="' . $this->admin_url( '?page=modules', true ) . '" method="post">
         <label for="auto" class="ss-label">Auto Update Security Patches</label>
         <select id="auto" name="auto" class="ss-select ss-mobile ss-w-6 ss-auto">
           <option value="true"' . ( $config[ 'auto' ] ? ' selected' : '' ) . '>Yes</option>
           <option value="false"' . ( $config[ 'auto' ] ? '' : ' selected' ) . '>No</option>
         </select>
-        <input type="hidden" name="token" value="' . $App->token() . '">
+        <input type="hidden" name="token" value="' . $this->token() . '">
         <input type="submit" name="save" value="Save" class="ss-btn ss-mobile ss-w-5">
       </form>';
       if ( isset( $_POST[ 'save' ] ) ) {
-        $App->auth();
+        $this->auth();
         $config[ 'auto' ] = filter_input( INPUT_POST, 'auto', FILTER_VALIDATE_BOOL );
-        if ( $App->set( $config, 'modules' ) ) {
-          $App->alert( 'Settings saved successfully.', 'success' );
-          $App->go( $App->admin_url( '?page=modules' ) );
+        if ( $this->set( $config, 'modules' ) ) {
+          $this->alert( 'Settings saved successfully.', 'success' );
+          $this->go( $this->admin_url( '?page=modules' ) );
         }
         
-        $App->alert( 'Failed to save settings, please try again.', 'error' );
-        $App->go( $App->admin_url( '?page=modules' ) );
+        $this->alert( 'Failed to save settings, please try again.', 'error' );
+        $this->go( $this->admin_url( '?page=modules' ) );
       }
       
-      require_once $App->root( 'app/layout.php' );
+      require_once $this->root( 'app/layout.php' );
       break;
     case 'modules_manager':
-      $config = $App->get( 'modules' );
+      $config = $this->get( 'modules' );
       $layout[ 'title' ] = 'Modules';
       $layout[ 'content' ] = '
       <div class="ss-container ss-center ss-mt-7">
@@ -245,23 +196,23 @@ function modules_admin(): void {
           <option value="plugin">PLUGINS</option>
         </select>
         <p class="ss-right-align ss-tiny ss-mt-7 ss-mb-5 ss-mr-3">
-          <a href="' . $App->admin_url( '?page=modules_manager&sync=true&token=' . $App->token(), true ) . '" class="ss-btn ss-inverted ss-white ss-bg-cyan ss-bd-cyan">Check for updates</a>
+          <a href="' . $this->admin_url( '?page=modules_manager&sync=true&token=' . $this->token(), true ) . '" class="ss-btn ss-inverted ss-white ss-bg-cyan ss-bd-cyan">Check for updates</a>
           <br> Last sync: ' . date( 'F j, Y – H:i', filectime( modules_temporary_dir( 'packages.json' ) ) ) . '
-          <br> Repository: ' . $App->esc( modules_repository() ) . '
+          <br> Repository: ' . MODULES_REPO . '
         </p>
         <div class="ss-row ss-small">';
       $modules = get_modules();
-      $themes  = $App->themes;
-      $plugins = $App->plugins;
-      $installed_plugins = $App->data()[ 'installed' ];
+      $themes  = $this->themes;
+      $plugins = $this->plugins;
+      $installed_plugins = $this->data()[ 'installed' ];
       if ( empty( $modules ) ) {
         $layout[ 'content' ] .= '<span class="ss-large">REPOSITORY EMPTY</span>';
       }
       
       foreach ( $modules as $module ) {
         $dependencies = '';
-        $compatible = module_compatible( $module, $App->version );
-        $is_current_theme = ( 'theme' === $module[ 'type' ] && $module[ 'slug' ] === $App->get( 'theme' ) );
+        $compatible = module_compatible( $module, $this->version );
+        $is_current_theme = ( 'theme' === $module[ 'type' ] && $module[ 'slug' ] === $this->get( 'theme' ) );
         $downloaded = in_array( $module[ 'slug' ], ( $module[ 'type' ] === 'plugin' ? $plugins : $themes ) );
         $installed = in_array( $module[ 'slug' ], ( $module[ 'type' ] === 'plugin' ? $installed_plugins : [] ) );
         
@@ -283,8 +234,7 @@ function modules_admin(): void {
         
         if ( $downloaded ) {
           $layout[ 'content' ] .= '
-          <p class="ss-tag ss-round ss-mb-0 ss-bg-gray">DOWNLOADED: v' . get_module_local( $module[ 'slug' ], $module[ 'type' ], 'version', '0.x.x' ) . '</p>
-          <p class="ss-tag ss-round ss-mb-0 ss-bg-cyan">SIZE: ' . module_size( $module ) . '</p>';
+          <p class="ss-tag ss-round ss-mb-0 ss-bg-gray">DOWNLOADED: v' . get_module_local( $module[ 'slug' ], $module[ 'type' ], 'version', '0.x.x' ) . '</p>';
         }
         
         $layout[ 'content' ] .= '
@@ -318,8 +268,8 @@ function modules_admin(): void {
         <h4 class="ss-monospace">' . $module[ 'name' ] . ' <sup class="ss-small">(' . $module[ 'slug' ] . ')</sup></h4>
         <p>' . substr( $module[ 'description' ], 0, 300 ) . '</p>
         <p>
-          <a' . ( ( $compatible && $version !== 0 ) ? ' href="' . $App->admin_url( '?page=modules_manager&download=true' . ( $downloaded ? '&update=true' : '' ) . '&slug=' . $module[ 'slug' ] . '&type=' . $module[ 'type' ] . '&token=' . $App->token(), true ) . '" onclick="return confirm(\'Are you sure you want to ' . ( $downloaded ? ( ( $version < 0 ) ? 'downgrade' : 'update' ) : 'download' ) . ' this ' . $module[ 'type' ] . '?\')"' : '' ) . ' class="ss-button ss-card' . ( ( $compatible && $version !== 0 ) ? '' : ' ss-disabled' ) . '" disabled>' . ( $downloaded ? ( ( $version < 0 ) ? 'Downgrade' : ( ( $version === 0 ) ? 'Up to Date' : 'Update' ) ) : 'Download' ) . '</a>
-          ' . ( $downloaded ? '<a' . ( ( $installed || $is_current_theme ) ? '' : ' href="' . $App->admin_url( '?page=modules_manager&delete=true&slug=' . $module[ 'slug' ] . '&type=' . $module[ 'type' ] . '&token=' . $App->token(), true ) . '" onclick="return confirm(\'Are you sure you want to delete this ' . $module[ 'type' ] . '?\')"' ) . ' class="ss-button ss-card ss-white ss-bg-light-red' . ( ( $installed || $is_current_theme ) ? ' ss-disabled" disabled' : '"' ) . '>Delete</a>' : '' ) . '
+          <a' . ( ( $compatible && $version !== 0 ) ? ' href="' . $this->admin_url( '?page=modules_manager&download=true' . ( $downloaded ? '&update=true' : '' ) . '&slug=' . $module[ 'slug' ] . '&type=' . $module[ 'type' ] . '&token=' . $this->token(), true ) . '" onclick="return confirm(\'Are you sure you want to ' . ( $downloaded ? ( ( $version < 0 ) ? 'downgrade' : 'update' ) : 'download' ) . ' this ' . $module[ 'type' ] . '?\')"' : '' ) . ' class="ss-button ss-card' . ( ( $compatible && $version !== 0 ) ? '' : ' ss-disabled' ) . '" disabled>' . ( $downloaded ? ( ( $version < 0 ) ? 'Downgrade' : ( ( $version === 0 ) ? 'Up to Date' : 'Update' ) ) : 'Download' ) . '</a>
+          ' . ( $downloaded ? '<a' . ( ( $installed || $is_current_theme ) ? '' : ' href="' . $this->admin_url( '?page=modules_manager&delete=true&slug=' . $module[ 'slug' ] . '&type=' . $module[ 'type' ] . '&token=' . $this->token(), true ) . '" onclick="return confirm(\'Are you sure you want to delete this ' . $module[ 'type' ] . '?\')"' ) . ' class="ss-button ss-card ss-white ss-bg-light-red' . ( ( $installed || $is_current_theme ) ? ' ss-disabled" disabled' : '"' ) . '>Delete</a>' : '' ) . '
         </p>
         <details class="ss-fieldset">
           <summary>More details</summary>
@@ -396,43 +346,84 @@ function modules_admin(): void {
       }
       </script>';
       if ( isset( $_GET[ 'sync' ] ) ) {
-        $App->auth( post: false );
+        $this->auth( post: false );
         if ( modules_download_list() ) {
-          $App->alert( 'List updated successfully.', 'success' );
-          $App->go( $App->admin_url( '?page=modules_manager' ) );
+          $this->alert( 'List updated successfully.', 'success' );
+          $this->go( $this->admin_url( '?page=modules_manager' ) );
         }
         
-        $App->alert( 'Failed to update list, please try again.', 'error' );
-        $App->go( $App->admin_url( '?page=modules_manager' ) );
+        $this->alert( 'Failed to update list, please try again.', 'error' );
+        $this->go( $this->admin_url( '?page=modules_manager' ) );
       }
       
       elseif ( isset( $_GET[ 'download' ] ) ) {
-        $App->auth( post: false );
+        $this->auth( post: false );
         $module = get_module( $_GET[ 'slug' ], $_GET[ 'type' ] );
         if ( download_module( $module, $msg ) ) {
           $action = ( isset( $_GET[ 'update' ] ) ? 'updated' : 'downloaded' );
-          $App->alert( sprintf( '%s <b>%s</b> has been %s successfully.', ucfirst( $module[ 'type' ] ), ucwords( $module[ 'name' ] ), $action ), 'success' );
-          $App->go( $App->admin_url( '?page=modules_manager' ) );
+          $this->alert( sprintf( '%s <b>%s</b> has been %s successfully.', ucfirst( $module[ 'type' ] ), ucwords( $module[ 'name' ] ), $action ), 'success' );
+          $this->go( $this->admin_url( '?page=modules_manager' ) );
         }
         
-        $App->alert( $msg . ', please try again.', 'error' );
-        $App->go( $App->admin_url( '?page=modules_manager' ) );
+        $this->alert( $msg . ', please try again.', 'error' );
+        $this->go( $this->admin_url( '?page=modules_manager' ) );
       }
       
       elseif ( isset( $_GET[ 'delete' ] ) ) {
-        $App->auth( post: false );
+        $this->auth( post: false );
         $module = get_module( $_GET[ 'slug' ], $_GET[ 'type' ] );
         if ( delete_module( $module, $msg ) ) {
-          $App->alert( $msg . ' successfully.', 'success' );
-          $App->go( $App->admin_url( '?page=modules_manager' ) );
+          $this->alert( $msg . ' successfully.', 'success' );
+          $this->go( $this->admin_url( '?page=modules_manager' ) );
         }
         
-        $App->alert( $msg . ', please try again.', 'error' );
-        $App->go( $App->admin_url( '?page=modules_manager' ) );
+        $this->alert( $msg . ', please try again.', 'error' );
+        $this->go( $this->admin_url( '?page=modules_manager' ) );
       }
       
-      require_once $App->root( 'app/layout.php' );
+      require_once $this->root( 'app/layout.php' );
       break;
+  }
+});
+
+/**
+ * Auto update security patches
+ * @return void
+ */
+function modules_tasks(): void {
+  global $App;
+  $config = $App->get( 'modules' );
+  if ( ! $config[ 'auto' ] ) return;
+  
+  $time = filectime( modules_temporary_dir( 'packages.json' ) );
+  if ( time() >= ( $time + strtotime( '+1 week', 0 ) ) ) {
+    modules_download_list();
+  }
+  
+  $modules = get_modules();
+  foreach ( $modules as $module ) {
+    if (  ! $module[ 'version' ][ 'security' ] ) {
+      continue;
+    }
+    
+    elseif ( 'plugin' === $module[ 'type' ] ) {
+      if ( ! in_array( $module[ 'slug' ], $App->plugins ) ) {
+        continue;
+      }
+    }
+    
+    elseif ( 'theme' === $module[ 'type' ] ) {
+      if ( ! in_array( $module[ 'slug' ], $App->themes ) ) {
+        continue;
+      }
+    }
+    
+    $slug = $module[ 'slug' ];
+    $type = $module[ 'type' ];
+    $current = get_module_local( $slug, $type, 'version', '0' );
+    if ( version_compare( $module[ 'version' ][ 'tag' ], $current, '>' ) ) {
+      download_module( $module );
+    }
   }
 }
 
@@ -467,6 +458,29 @@ function extract_module_zipfile( array $module ): bool {
   
   unlink( $tempfile );
   return false;
+}
+
+/**
+ * Resolve module dependencies
+ * @param string $slug
+ * @param array &$resolved
+ * @return void
+ */
+function resolve_module( string $slug, array &$resolved ): void {
+  $module = get_module( $slug, 'plugin' );
+  if ( ! $module || 'plugin' !== $module[ 'type' ] ) {
+    return;
+  }
+  
+  foreach ( $module[ 'dependencies' ] as $addon ) {
+    if ( ! in_array(  $addon[ 'slug' ], $resolved ) ) {
+      resolve_module( $addon[ 'slug' ], $resolved );
+    }
+  }
+  
+  if ( ! in_array( $slug, $resolved ) ) {
+    $resolved[] =  $slug;
+  }
 }
 
 /**
@@ -535,6 +549,7 @@ function download_module( ?array $module, ?string &$msg = null ): bool {
   }
   
   $msg = 'Module downloaded';
+  $App->get_action( 'download_module', $module );
   return true;
 }
 
@@ -578,6 +593,7 @@ function delete_module( ?array $module, ?string &$msg = null ): bool {
   }
   
   $msg = 'Module deleted';
+  $App->get_action( 'delete_module', $module );
   return true;
 }
 
@@ -635,36 +651,6 @@ function modules_clear_temporary(): bool {
 }
 
 /**
- * Folder size checker
- * @param string $folder
- * @return int
- */
-function modules_folder_size( string $folder ): int {
-  $files = scandir( $folder, SCANDIR_SORT_NONE );
-  if ( ! $files ) {
-    return 0;
-  }
-  
-  $size = 0;
-  foreach ( $files as $each ) {
-    if ( '.' === $each || '..' === $each ) {
-      continue;
-    }
-    
-    $link = ( $folder . '/' . $each );
-    if ( is_file( $link ) ) {
-      $size += filesize( $link );
-    }
-    
-    elseif ( is_dir( $link ) ) {
-      $size += modules_folder_size( $link );
-    }
-  }
-  
-  return $size;
-}
-
-/**
  * Recursive deletion
  * @param string $folder
  * @return bool
@@ -707,13 +693,7 @@ function modules_download_list(): bool {
  * @return string
  */
 function modules_repository( string $path = '' ): string {
-  global $App;
-  $repo = $App->get_filter( 'BoidCMS/Packages', 'modules.repo' );
-  if ( empty( $path ) ) {
-    return $repo;
-  }
-  
-  return ( 'https://raw.githubusercontent.com/' . $repo . '/master/' . $path );
+  return ( 'https://raw.githubusercontent.com/' . MODULES_REPO . '/master/' . $path );
 }
 
 /**
@@ -812,25 +792,6 @@ function get_module( string $slug, string $type ): ?array {
   }
   
   return null;
-}
-
-/**
- * Module folder size
- * @param array $module
- * @return string
- */
-function module_size( array $module ): string {
-  $folder = module_permanent_dir( $module );
-  $size   = modules_folder_size(  $folder );
-  $proper_size = round( $size / 1024 );
-  $label  = 'KB';
-  
-  if ( $proper_size > 900 ) {
-    $proper_size = round( $proper_size / 1024 );
-    $label = 'MB';
-  }
-  
-  return ( $proper_size . $label );
 }
 
 /**
