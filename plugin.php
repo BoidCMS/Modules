@@ -142,9 +142,9 @@ $App->set_action( 'api_response', function ( $response ) {
 
 $App->set_action( 'admin_nav', function () {
   global $page;
-  $slug = $this->admin_url( '?page=modules_manager', true );
-  $active = ( 'modules_manager' === $page ? ' ss-bg-cyan' : '' );
-  return "<a href=\"$slug\" class=\"ss-btn ss-inverted ss-bd-none ss-white$active\">Modules</a>";
+  $slug = $this->admin_url( '?page=marketplace', true );
+  $active = ( 'marketplace' === $page ? ' ss-bg-cyan' : '' );
+  return "<a href=\"$slug\" class=\"ss-btn ss-inverted ss-bd-none ss-white$active\">Marketplace</a>";
 });
 
 $App->set_action( 'admin_middle', function () {
@@ -184,9 +184,9 @@ $App->set_action( 'admin', function () {
       
       require_once $this->root( 'app/layout.php' );
       break;
-    case 'modules_manager':
+    case 'marketplace':
       $config = $this->get( 'modules' );
-      $layout[ 'title' ] = 'Modules';
+      $layout[ 'title' ] = 'Marketplace';
       $layout[ 'content' ] = '
       <div class="ss-container ss-center ss-mt-7">
         <input type="search" id="search" placeholder="Search" class="ss-input ss-mobile ss-w-6 ss-mx-auto">
@@ -196,7 +196,7 @@ $App->set_action( 'admin', function () {
           <option value="plugin">PLUGINS</option>
         </select>
         <p class="ss-right-align ss-tiny ss-mt-7 ss-mb-5 ss-mr-3">
-          <a href="' . $this->admin_url( '?page=modules_manager&sync=true&token=' . $this->token(), true ) . '" class="ss-btn ss-inverted ss-white ss-bg-cyan ss-bd-cyan">Check for updates</a>
+          <a href="' . $this->admin_url( '?page=marketplace&sync=true&token=' . $this->token(), true ) . '" class="ss-btn ss-inverted ss-white ss-bg-cyan ss-bd-cyan">Check for updates</a>
           <br> Last sync: ' . date( 'F j, Y – H:i', filectime( modules_temporary_dir( 'packages.json' ) ) ) . '
           <br> Repository: ' . MODULES_REPO . '
         </p>
@@ -268,8 +268,8 @@ $App->set_action( 'admin', function () {
         <h4 class="ss-monospace">' . $module[ 'name' ] . ' <sup class="ss-small">(' . $module[ 'slug' ] . ')</sup></h4>
         <p>' . substr( $module[ 'description' ], 0, 300 ) . '</p>
         <p>
-          <a' . ( ( $compatible && $version !== 0 ) ? ' href="' . $this->admin_url( '?page=modules_manager&download=true' . ( $downloaded ? '&update=true' : '' ) . '&slug=' . $module[ 'slug' ] . '&type=' . $module[ 'type' ] . '&token=' . $this->token(), true ) . '" onclick="return confirm(\'Are you sure you want to ' . ( $downloaded ? ( ( $version < 0 ) ? 'downgrade' : 'update' ) : 'download' ) . ' this ' . $module[ 'type' ] . '?\')"' : '' ) . ' class="ss-button ss-card' . ( ( $compatible && $version !== 0 ) ? '' : ' ss-disabled' ) . '" disabled>' . ( $downloaded ? ( ( $version < 0 ) ? 'Downgrade' : ( ( $version === 0 ) ? 'Up to Date' : 'Update' ) ) : 'Download' ) . '</a>
-          ' . ( $downloaded ? '<a' . ( ( $installed || $is_current_theme ) ? '' : ' href="' . $this->admin_url( '?page=modules_manager&delete=true&slug=' . $module[ 'slug' ] . '&type=' . $module[ 'type' ] . '&token=' . $this->token(), true ) . '" onclick="return confirm(\'Are you sure you want to delete this ' . $module[ 'type' ] . '?\')"' ) . ' class="ss-button ss-card ss-white ss-bg-light-red' . ( ( $installed || $is_current_theme ) ? ' ss-disabled" disabled' : '"' ) . '>Delete</a>' : '' ) . '
+          <a' . ( ( $compatible && $version !== 0 ) ? ' href="' . $this->admin_url( '?page=marketplace&download=true' . ( $downloaded ? '&update=true' : '' ) . '&slug=' . $module[ 'slug' ] . '&type=' . $module[ 'type' ] . '&token=' . $this->token(), true ) . '" onclick="return confirm(\'Are you sure you want to ' . ( $downloaded ? ( ( $version < 0 ) ? 'downgrade' : 'update' ) : 'download' ) . ' this ' . $module[ 'type' ] . '?\')"' : '' ) . ' class="ss-button ss-card' . ( ( $compatible && $version !== 0 ) ? '' : ' ss-disabled' ) . '" disabled>' . ( $downloaded ? ( ( $version < 0 ) ? 'Downgrade' : ( ( $version === 0 ) ? 'Up to Date' : 'Update' ) ) : 'Download' ) . '</a>
+          ' . ( $downloaded ? '<a' . ( ( $installed || $is_current_theme ) ? '' : ' href="' . $this->admin_url( '?page=marketplace&delete=true&slug=' . $module[ 'slug' ] . '&type=' . $module[ 'type' ] . '&token=' . $this->token(), true ) . '" onclick="return confirm(\'Are you sure you want to delete this ' . $module[ 'type' ] . '?\')"' ) . ' class="ss-button ss-card ss-white ss-bg-light-red' . ( ( $installed || $is_current_theme ) ? ' ss-disabled" disabled' : '"' ) . '>Delete</a>' : '' ) . '
         </p>
         <details class="ss-fieldset">
           <summary>More details</summary>
@@ -349,11 +349,11 @@ $App->set_action( 'admin', function () {
         $this->auth( post: false );
         if ( modules_download_list() ) {
           $this->alert( 'List updated successfully.', 'success' );
-          $this->go( $this->admin_url( '?page=modules_manager' ) );
+          $this->go( $this->admin_url( '?page=marketplace' ) );
         }
         
         $this->alert( 'Failed to update list, please try again.', 'error' );
-        $this->go( $this->admin_url( '?page=modules_manager' ) );
+        $this->go( $this->admin_url( '?page=marketplace' ) );
       }
       
       elseif ( isset( $_GET[ 'download' ] ) ) {
@@ -362,11 +362,11 @@ $App->set_action( 'admin', function () {
         if ( download_module( $module, $msg ) ) {
           $action = ( isset( $_GET[ 'update' ] ) ? 'updated' : 'downloaded' );
           $this->alert( sprintf( '%s <b>%s</b> has been %s successfully.', ucfirst( $module[ 'type' ] ), ucwords( $module[ 'name' ] ), $action ), 'success' );
-          $this->go( $this->admin_url( '?page=modules_manager' ) );
+          $this->go( $this->admin_url( '?page=marketplace' ) );
         }
         
         $this->alert( $msg . ', please try again.', 'error' );
-        $this->go( $this->admin_url( '?page=modules_manager' ) );
+        $this->go( $this->admin_url( '?page=marketplace' ) );
       }
       
       elseif ( isset( $_GET[ 'delete' ] ) ) {
@@ -374,11 +374,11 @@ $App->set_action( 'admin', function () {
         $module = get_module( $_GET[ 'slug' ], $_GET[ 'type' ] );
         if ( delete_module( $module, $msg ) ) {
           $this->alert( $msg . ' successfully.', 'success' );
-          $this->go( $this->admin_url( '?page=modules_manager' ) );
+          $this->go( $this->admin_url( '?page=marketplace' ) );
         }
         
         $this->alert( $msg . ', please try again.', 'error' );
-        $this->go( $this->admin_url( '?page=modules_manager' ) );
+        $this->go( $this->admin_url( '?page=marketplace' ) );
       }
       
       require_once $this->root( 'app/layout.php' );
